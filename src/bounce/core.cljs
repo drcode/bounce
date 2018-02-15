@@ -12,13 +12,27 @@
 (enable-console-print!)
 (enable-material-ui!)
 
-(defonce app-state (atom {:ball/by-time        {0 [300 300]
-                                                4 [250 200]}
+(defonce app-state (atom {:ball/by-time {0 [302 352.52525252525254],
+                                         2 [244 319.1919191919191],
+                                         35 [108 111.11111111111114],
+                                         4 [184 350.5050505050506],
+                                         71 [423 168.68686868686873],
+                                         13 [127 336.36363636363643],
+                                         45 [159 64.64646464646466],
+                                         77 [486 243.43434343434348],
+                                         16 [53 355.55555555555526],
+                                         81 [588 260.6060606060606],
+                                         51 [237 145.45454545454544],
+                                         86 [551 359.5959595959596],
+                                         57 [291 110.10101010101016],
+                                         89 [490 298.989898989899],
+                                         26 [73 41.414141414141454],
+                                         91 [445 356.56565656565664],
+                                         94 [375 307.07070707070704], 
+                                         63 [373 187.87878787878788]}
                           :bounce/current-time 0}))
 
-(def gravity 8)
-
-(def subframes 3)
+(def gravity 0.4)
 
 (defn sqr [x]
   (* x x))
@@ -29,8 +43,8 @@
 (defn hit [{:keys [x y vx vy] :as arc} [xtarget ytarget]]
   (let [x             (- xtarget x)
         y             (- ytarget y)
-        [vx vy]       [(* 0.5 vx)
-                       (* 0.5 vy)]
+        [vx vy]       [(* 0.9 vx)
+                       (* 0.9 vy)]
         speed-squared (+ (sqr vx) (sqr vy))
         speed         (sqrt speed-squared)
         inner-part    (- (sqr speed-squared) (* gravity (+ (* gravity (sqr x)) (* 2 y speed-squared))))
@@ -47,45 +61,51 @@
                                                 (if (< ang-dist ang-dist-alt)
                                                   [vx-nu vy-nu]
                                                   [vx-alt vy-alt]))
-                            (pos? y)     (let [theta (js/Math.atan2 (* 2 y) x)
-                                               v  (sqrt (/ (* y 2 gravity) (sqr (js/Math.sin theta))))]
-                                           [(* v (js/Math.cos theta)) (* v (js/Math.sin theta))])
+                            (pos? y)          (let [theta (js/Math.atan2 (* 2 y) x)
+                                                    v  (sqrt (/ (* y 2 gravity) (sqr (js/Math.sin theta))))]
+                                                [(* v (js/Math.cos theta)) (* v (js/Math.sin theta))])
                             :else             (let [t  (/ (sqrt (* 2 (- y))) (sqrt gravity))
                                                     vx (/ x t)]
                                                 [vx 0]))]
     (assoc arc
            :vx vx
-           :vy vy)))
+           :vy vy
+           :stop-time (/ x vx))))
+
+(defn find-next-keyframe [balls cur-keyframe]
+  (let [bigger (sort (filter (partial < cur-keyframe) (keys balls)))]
+    (if (seq bigger)
+      (first bigger)
+      (first (sort (keys balls))))))
 
 (defn animate-ball [this]
   (binding [qr/*this* this]
     (update-state! (fn [{:keys [arc animation-time balls] :as state}]
+
                      (let [{:keys [arc] :as state}        (cond-> state
                                                             (not arc) (assoc :arc
-                                                                                          {:start-time 0
-                                                                                           :x          100
-                                                                                           :y          0
-                                                                                           :vx         60
-                                                                                           :vy         20}))
-                           key-time                       (/ animation-time subframes)
-                           {:keys [start-time x y vx vy]} arc
-                           tim (mod (+ 100 (- (/ animation-time subframes) start-time)) 100)
-                           x (+ x (* vx tim))
-                           y (+ y (* vy tim) (- (* 0.5 gravity (* tim tim))))
+                                                                             {:cur-keyframe -1
+                                                                              :x          100
+                                                                              :y          0
+                                                                              :vx         0
+                                                                              :vy         0}))
+                           {:keys [stop-time x y vx vy cur-keyframe]} arc
+                           x (+ x (* vx animation-time))
+                           y (+ y (* vy animation-time) (- (* 0.5 gravity (sqr animation-time))))
                            state        (cond-> state
-                                          (balls key-time) (assoc :arc
-                                                                  (hit (assoc arc
-                                                                              :start-time key-time
-                                                                              :x          x
-                                                                              :y          y
-                                                                              :vy         (- vy (* gravity tim)))
-                                                                       (balls key-time))))]
+                                          (> animation-time stop-time) (assoc :animation-time 0
+                                                                              :arc
+                                                                              (let [next-keyframe (find-next-keyframe balls cur-keyframe)]
+                                                                                (hit (assoc arc
+                                                                                            :x          x
+                                                                                            :y          y
+                                                                                            :cur-keyframe next-keyframe
+                                                                                            :vy         (- vy (* gravity animation-time)))
+                                                                                     (balls next-keyframe)))))]
                        (-> state
                            (assoc :animation-ball
                                   [x y])
-                           (update :animation-time
-                                   (fn [tim]
-                                     (mod (+ tim 1) (* subframes 100))))))))))
+                           (update :animation-time inc)))))))
 
 (defn set-state-from-props [props]
   (update-state! assoc
@@ -102,7 +122,7 @@
                        (update-state! assoc
                                       :interval
                                       (js/setInterval (partial animate-ball qr/*this*)
-                                                      (/ 1000 60) #_20)))
+                                                      #_1000 (/ 1000 60) #_20)))
   (component-will-unmount [state]
                           (js/clearInterval (:interval state)))
   (component-will-receive-props [{:keys [:bounce/balls] :as atts}]
@@ -141,9 +161,9 @@
                                   :on-click         (fn []
                                                       (when (not= current-time tim)
                                                         (transact! [:bounce/current-time! {:value tim}])))
-                                  :opacity          (if transparent
-                                                      0.4
-                                                      1)}
+                                  :opacity          (cond transparent 0.2
+                                                          (= color :image) 1
+                                                          :else            0.5)}
                             tim])
                 derp balls]
             #_(?? derp)
