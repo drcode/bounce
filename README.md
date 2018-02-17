@@ -1,8 +1,6 @@
-# qlkit-todo-demo
+# Animation Experiment
 
-This is a "batteries included" demo of qlkit- [Try a live version here](http://forwardblockchain.com/qlkit-todomvc/)
-
-Please read the [recommended qlkit introductory article](https://medium.com/p/79b7b118ddac) for a walkthrough of this application.
+Read this post for more details: https://medium.com/@conrad_9565/making-procedural-animation-friendlier-for-humans-a986ea46f587
 
 ## Setup
 
