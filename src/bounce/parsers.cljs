@@ -74,3 +74,9 @@
          (fn [{:keys [:bounce/current-time] :as state}]
            (assoc-in state [:ball/by-time current-time] [300 200]))))
 
+(defmethod mutate :bounce/delete-keyframe!
+  [[_ params :as query-term] env state-atom]
+  (swap! state-atom
+         (fn [{:keys [:bounce/current-time] :as state}]
+           (update state :ball/by-time dissoc current-time))))
+

@@ -16,7 +16,6 @@
                                          2 [244 319.1919191919191],
                                          35 [108 111.11111111111114],
                                          4 [184 350.5050505050506],
-                                         71 [423 168.68686868686873],
                                          13 [127 336.36363636363643],
                                          45 [159 64.64646464646466],
                                          77 [486 243.43434343434348],
@@ -24,15 +23,11 @@
                                          81 [588 260.6060606060606],
                                          51 [237 145.45454545454544],
                                          86 [551 359.5959595959596],
-                                         57 [291 110.10101010101016],
                                          89 [490 298.989898989899],
                                          26 [73 41.414141414141454],
                                          91 [445 356.56565656565664],
-                                         94 [375 307.07070707070704], 
-                                         63 [373 187.87878787878788]}
+                                         94 [375 307.07070707070704]}
                           :bounce/current-time 0}))
-
-(def gravity 0.4)
 
 (defn sqr [x]
   (* x x))
@@ -40,11 +35,14 @@
 (defn sqrt [x]
   (js/Math.sqrt x))
 
-(defn hit [{:keys [x y vx vy] :as arc} [xtarget ytarget]]
+(defn hit [{:keys [x y vx vy] :as arc} [xtarget ytarget] gravity friction]
   (let [x             (- xtarget x)
-        y             (- ytarget y)
-        [vx vy]       [(* 0.9 vx)
-                       (* 0.9 vy)]
+        y             (- ytarget y)        
+        theta-fric    (js/Math.atan2 vy vx)
+        theta-targ    (js/Math.atan2 y x)
+        friction      (/ (* friction (js/Math.abs (js/Math.atan2 (js/Math.sin (- theta-fric theta-targ)) (js/Math.cos (- theta-fric theta-targ))))) 3.14159)
+        [vx vy]       [(* (- 1 friction) vx)
+                       (* (- 1 friction) vy)]
         speed-squared (+ (sqr vx) (sqr vy))
         speed         (sqrt speed-squared)
         inner-part    (- (sqr speed-squared) (* gravity (+ (* gravity (sqr x)) (* 2 y speed-squared))))
@@ -70,7 +68,7 @@
     (assoc arc
            :vx vx
            :vy vy
-           :stop-time (/ x vx))))
+           :stop-time (min 150 (/ x vx)))))
 
 (defn find-next-keyframe [balls cur-keyframe]
   (let [bigger (sort (filter (partial < cur-keyframe) (keys balls)))]
@@ -78,34 +76,40 @@
       (first bigger)
       (first (sort (keys balls))))))
 
+(defn gravity [gravity-exp]
+  (dec (js/Math.pow 10 gravity-exp)))
+
 (defn animate-ball [this]
   (binding [qr/*this* this]
-    (update-state! (fn [{:keys [arc animation-time balls] :as state}]
-
-                     (let [{:keys [arc] :as state}        (cond-> state
-                                                            (not arc) (assoc :arc
-                                                                             {:cur-keyframe -1
-                                                                              :x          100
-                                                                              :y          0
-                                                                              :vx         0
-                                                                              :vy         0}))
+    (update-state! (fn [{:keys [arc animation-time balls gravity-exp friction] :as state}]
+                     (let [gravity                                    (gravity gravity-exp)
+                           {:keys [arc] :as state}                    (cond-> state
+                                                                        (not arc) (assoc :arc
+                                                                                         {:cur-keyframe -1
+                                                                                          :x          100
+                                                                                          :y          0
+                                                                                          :vx         0
+                                                                                          :vy         0}))
                            {:keys [stop-time x y vx vy cur-keyframe]} arc
-                           x (+ x (* vx animation-time))
-                           y (+ y (* vy animation-time) (- (* 0.5 gravity (sqr animation-time))))
-                           state        (cond-> state
-                                          (> animation-time stop-time) (assoc :animation-time 0
-                                                                              :arc
-                                                                              (let [next-keyframe (find-next-keyframe balls cur-keyframe)]
-                                                                                (hit (assoc arc
-                                                                                            :x          x
-                                                                                            :y          y
-                                                                                            :cur-keyframe next-keyframe
-                                                                                            :vy         (- vy (* gravity animation-time)))
-                                                                                     (balls next-keyframe)))))]
+                           x                                          (+ x (* vx animation-time))
+                           y                                          (+ y (* vy animation-time) (- (* 0.5 gravity (sqr animation-time))))
+                           state                                      (cond-> state
+                                                                        (> animation-time stop-time) (assoc :animation-time 0
+                                                                                                            :arc
+                                                                                                            (let [next-keyframe (find-next-keyframe balls cur-keyframe)]
+                                                                                                              (hit (assoc arc
+                                                                                                                          :x          x
+                                                                                                                          :y          y
+                                                                                                                          :cur-keyframe next-keyframe
+                                                                                                                          :vy         (- vy (* gravity animation-time)))
+                                                                                                                   (balls next-keyframe)
+                                                                                                                   gravity
+                                                                                                                   friction))))]
                        (-> state
                            (assoc :animation-ball
                                   [x y])
-                           (update :animation-time inc)))))))
+                           (update :animation-time inc)
+                           (assoc :animation-id (js/requestAnimationFrame (partial animate-ball this)))))))))
 
 (defn set-state-from-props [props]
   (update-state! assoc
@@ -115,20 +119,18 @@
                          [k [x (- 400 y)]]))))
 
 (defcomponent Root
-  (state {:animation-time 0})
+  (state {:animation-time 0 :gravity-exp 0.2 :friction 0.29})
   (query [[:ball/current] [:bounce/current-time] [:bounce/balls]])
   (component-did-mount [atts]
                        (set-state-from-props atts)                       
                        (update-state! assoc
-                                      :interval
-                                      (js/setInterval (partial animate-ball qr/*this*)
-                                                      #_1000 (/ 1000 60) #_20)))
+                                      :animation-id
+                                      (js/requestAnimationFrame (partial animate-ball qr/*this*))))
   (component-will-unmount [state]
-                          (js/clearInterval (:interval state)))
+                          (js/cancelAnimationFrame (:animation-id state)))
   (component-will-receive-props [{:keys [:bounce/balls] :as atts}]
-                                #_(?? balls)
                                 (set-state-from-props atts))
-  (render [{:keys [:ball/current :bounce/current-time :bounce/balls] :as atts} {:keys [ball-down animation-ball animation-time] :as state}]
+  (render [{:keys [:ball/current :bounce/current-time :bounce/balls] :as atts} {:keys [ball-down animation-ball animation-time gravity-exp friction] :as state}]
           (let [[x y]    current
                 mouse-fn (fn [key]
                            (fn [e]
@@ -166,40 +168,66 @@
                                                           :else            0.5)}
                             tim])
                 derp balls]
-            #_(?? derp)
             [:card {:max-width 600
                     :margin    :auto
                     :rounded false}
              [:card-header {:title "Physics Animation Experiment"}]
+             [:card-text "Be sure to read my " [:a {:href "https://medium.com/p/a986ea46f587"}
+                                             "blog post on this little experiment!"]]
              [:div {:background-image "url(background.jpg)"
                     :user-select      :none
                     :overflow         :hidden
                     :padding-bottom   "66%"
                     :position         :relative
+                    :color :silver
+                    :font-size        "70%"
                     :on-mouse-down    (mouse-fn :current-ball/drag-start!)
                     :on-mouse-move    (mouse-fn :current-ball/drag-end!)
                     :on-mouse-leave   (mouse-fn :current-ball/move-cancel!)
                     :on-mouse-up      (mouse-fn :current-ball/move!)}
+              [:div {:position :absolute
+                     :right "4%"
+                     :top "6%"} "Click on handles to select or move them"]
               (for [[k v] balls]
                 (ball k "#CCC" (first v) (second v) (= k current-time)))
               (when current
                 (ball current-time "#BCF" x y false))
               (ball "" #_(int (/ animation-time subframes)) :image (first animation-ball) (- 400 (second animation-ball)) false)]
-             [:card-actions [:flat-button {:primary  true
-                                           :disabled (boolean current)
-                                           :label    "New Keyframe"
+             [:card-actions
+              [:flat-button {:primary  true
+                             :disabled (boolean current)
+                             :label    "New Handle"
+                             :on-click (fn []
+                                         (transact! [:bounce/new-keyframe! {:time current-time}]))}]
+              [:flat-button {:primary  true
+                                           :disabled (not current)
+                                           :label    "Delete Handle"
                                            :on-click (fn []
-                                                       (transact! [:bounce/new-keyframe! {:time current-time}]))}]]
+                                                       (transact! [:bounce/delete-keyframe! {:time current-time}]))}]]
              [:card-text
               {:text-align :center}
-              current-time
+              "Handle: " current-time
               [:slider {:min       0
                         :max       100
                         :step      1
                         :value     current-time
                         :on-change (fn [_ value]
-                                     (transact! [:bounce/current-time! {:value value}]))}]]
-
+                                     (transact! [:bounce/current-time! {:value value}]))}]
+              "Gravity: " (/ (int (* (gravity gravity-exp) 100)) 100)
+              [:slider {:min       0.01
+                        :max       1.2
+                        :step      0.01
+                        :value     gravity-exp
+                        :on-change (fn [_ value]
+                                     (update-state! assoc :gravity-exp value))}]
+              "Friction: " friction
+              [:slider {:min       0.01
+                        :max       0.99
+                        :step     0.01
+                        :value    friction
+                        :on-change (fn [_ value]
+                                     (update-state! assoc :friction value))}]]
+             [:card-text "Built by Conrad Barski using ForwardBlockchain's " [:a {:href "http://qlkit.org"} "Qlkit Web Development Framework"]]
              #_[:a {:href "https://www.freepik.com/free-photo/3d-wooden-table-against-grunge-wall-with-light-shining-from-the-left_1594722.htm"} "Background Image Designed by Freepik"]])))
 
 (defn remote-handler [query callback]
@@ -214,3 +242,4 @@
            :remote-handler remote-handler
            :parsers        {:read   read
                             :mutate mutate}})
+
